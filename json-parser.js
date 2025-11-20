@@ -1,17 +1,23 @@
-
+[file name]: json-parser.js
+[file content begin]
 const github = require('./github');
 
 // Parse and execute JSON operations
 async function parseAndExecuteJSON(operations) {
+  console.log('Starting to parse and execute JSON operations...');
+  
   if (!Array.isArray(operations)) {
     operations = [operations];
   }
+
+  console.log(`Processing ${operations.length} operations`);
 
   // Validate and normalize operations
   const validatedOperations = [];
   
   for (const op of operations) {
     try {
+      console.log('Validating operation:', op.action, op.file);
       const validatedOp = validateOperation(op);
       if (validatedOp) {
         validatedOperations.push(validatedOp);
@@ -21,6 +27,8 @@ async function parseAndExecuteJSON(operations) {
     }
   }
 
+  console.log(`Validated ${validatedOperations.length} operations`);
+
   // Group operations by file and type
   const fileOperations = {};
   const createOperations = [];
@@ -29,11 +37,13 @@ async function parseAndExecuteJSON(operations) {
   for (const op of validatedOperations) {
     // Handle different action types
     if (op.action === 'create') {
+      console.log(`Create operation: ${op.file}`);
       createOperations.push(op);
       continue;
     }
 
     if (op.action === 'delete_file') {
+      console.log(`Delete file operation: ${op.file}`);
       deleteFileOperations.push(op);
       continue;
     }
@@ -42,6 +52,7 @@ async function parseAndExecuteJSON(operations) {
       if (!fileOperations[op.file]) {
         fileOperations[op.file] = [];
       }
+      console.log(`${op.action} operation: ${op.file} at line ${op.line}`);
       fileOperations[op.file].push(op);
     }
   }
@@ -53,9 +64,11 @@ async function parseAndExecuteJSON(operations) {
     // 1. Delete files first
     for (const op of deleteFileOperations) {
       try {
+        console.log(`Deleting file: ${op.file}`);
         const result = await deleteFile(op.file);
         results.push(result);
       } catch (error) {
+        console.error(`Error deleting file ${op.file}:`, error);
         results.push({
           file: op.file,
           action: 'delete_file',
@@ -68,9 +81,11 @@ async function parseAndExecuteJSON(operations) {
     // 2. Process file modifications (insert/delete)
     for (const [filePath, ops] of Object.entries(fileOperations)) {
       try {
+        console.log(`Processing modifications for: ${filePath} (${ops.length} operations)`);
         const result = await processFileOperations(filePath, ops);
         results.push(result);
       } catch (error) {
+        console.error(`Error processing file ${filePath}:`, error);
         results.push({
           file: filePath,
           action: 'modify',
@@ -83,9 +98,11 @@ async function parseAndExecuteJSON(operations) {
     // 3. Create new files last
     for (const op of createOperations) {
       try {
+        console.log(`Creating file: ${op.file}`);
         const result = await createFile(op.file, op.content);
         results.push(result);
       } catch (error) {
+        console.error(`Error creating file ${op.file}:`, error);
         results.push({
           file: op.file,
           action: 'create',
@@ -103,6 +120,7 @@ async function parseAndExecuteJSON(operations) {
     });
   }
 
+  console.log(`Completed processing. Results: ${results.filter(r => r.success).length} successful, ${results.filter(r => !r.success).length} failed`);
   return results;
 }
 
@@ -333,3 +351,4 @@ function insertAtLine(lines, lineNumber, codeToInsert) {
 module.exports = {
   parseAndExecuteJSON
 };
+[file content end]
