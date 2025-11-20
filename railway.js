@@ -15,17 +15,18 @@ const api = axios.create({
 // Get latest deployment status
 async function getDeploymentStatus() {
   try {
+    // Get latest deployment using string interpolation
     const query = `
-      query {
-        project(id: "${PROJECT_ID}") {
-          deployments(first: 1) {
-            edges {
-              node {
-                id
-                status
-                createdAt
-                staticUrl
-                meta
+      {
+        deployments(input: {projectId: "${PROJECT_ID}"}, first: 1) {
+          edges {
+            node {
+              id
+              status
+              createdAt
+              staticUrl
+              environment {
+                name
               }
             }
           }
@@ -39,15 +40,21 @@ async function getDeploymentStatus() {
       throw new Error(response.data.errors[0].message);
     }
 
-    const deployment = response.data.data.project.deployments.edges[0]?.node;
+    const deployments = response.data.data.deployments.edges;
     
-    if (!deployment) {
+    if (!deployments || deployments.length === 0) {
       return { status: 'NO_DEPLOYMENTS', message: 'No deployments found' };
     }
 
-    let error = null;
+    const deployment = deployments[0].node;
+    
+    let buildLogs = '';
+    let deploymentLogs = '';
+    
+    // If deployment failed, get logs
     if (deployment.status === 'FAILED' || deployment.status === 'CRASHED') {
-      error = await getDeploymentLogs(deployment.id);
+      buildLogs = await getBuildLogs(deployment.id);
+      deploymentLogs = await getDeploymentLogs(deployment.id);
     }
 
     return {
@@ -55,7 +62,9 @@ async function getDeploymentStatus() {
       status: deployment.status,
       createdAt: deployment.createdAt,
       url: deployment.staticUrl,
-      error: error
+      environment: deployment.environment?.name || 'unknown',
+      buildLogs: buildLogs,
+      deploymentLogs: deploymentLogs
     };
   } catch (error) {
     console.error('Railway API error:', error.response?.data || error.message);
@@ -63,13 +72,14 @@ async function getDeploymentStatus() {
   }
 }
 
-// Get deployment logs (for error details)
-async function getDeploymentLogs(deploymentId) {
+// Get build logs
+async function getBuildLogs(deploymentId) {
   try {
     const query = `
-      query {
-        deploymentLogs(deploymentId: "${deploymentId}", limit: 100) {
+      {
+        buildLogs(deploymentId: "${deploymentId}", limit: 500) {
           message
+          severity
           timestamp
         }
       }
@@ -78,23 +88,68 @@ async function getDeploymentLogs(deploymentId) {
     const response = await api.post('', { query });
     
     if (response.data.errors) {
-      return 'Unable to fetch error logs';
+      return 'Unable to fetch build logs';
+    }
+
+    const logs = response.data.data.buildLogs;
+    
+    if (!logs || logs.length === 0) {
+      return 'No build logs available';
+    }
+
+    // Sort by timestamp and format
+    const sortedLogs = logs.sort((a, b) => 
+      new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+
+    const formattedLogs = sortedLogs
+      .map(log => `${log.timestamp} [${log.severity}] ${log.message}`)
+      .join('\n');
+
+    return formattedLogs;
+  } catch (error) {
+    console.error('Error fetching build logs:', error.message);
+    return 'Unable to fetch build logs';
+  }
+}
+
+// Get deployment logs
+async function getDeploymentLogs(deploymentId) {
+  try {
+    const query = `
+      {
+        deploymentLogs(deploymentId: "${deploymentId}", limit: 500) {
+          message
+          severity
+          timestamp
+        }
+      }
+    `;
+
+    const response = await api.post('', { query });
+    
+    if (response.data.errors) {
+      return 'Unable to fetch deployment logs';
     }
 
     const logs = response.data.data.deploymentLogs;
     
-    // Filter for error messages
-    const errorLogs = logs
-      .filter(log => 
-        log.message.toLowerCase().includes('error') || 
-        log.message.toLowerCase().includes('failed') ||
-        log.message.toLowerCase().includes('exception')
-      )
-      .map(log => log.message)
+    if (!logs || logs.length === 0) {
+      return 'No deployment logs available';
+    }
+
+    // Sort by timestamp and format
+    const sortedLogs = logs.sort((a, b) => 
+      new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+
+    const formattedLogs = sortedLogs
+      .map(log => `${log.timestamp} [${log.severity}] ${log.message}`)
       .join('\n');
 
-    return errorLogs || 'Deployment failed but no specific error found in logs';
+    return formattedLogs;
   } catch (error) {
+    console.error('Error fetching deployment logs:', error.message);
     return 'Unable to fetch deployment logs';
   }
 }
