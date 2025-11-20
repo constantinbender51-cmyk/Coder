@@ -2,13 +2,15 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>DeepSeek Chat</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <button class="menu-toggle" id="menuToggle">☰</button>
+
     <div class="container">
-        <div class="sidebar">
+        <div class="sidebar" id="sidebar">
             <h3>Repository Files</h3>
             <button id="refreshFilesBtn" class="btn-secondary">Refresh</button>
             <div id="fileList" class="file-list"></div>
