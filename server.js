@@ -16,8 +16,58 @@ app.use(cors());
 app.use(bodyParser.json());
 app.use(express.static('public'));
 
+// System prompt for DeepSeek
+const SYSTEM_PROMPT = `You are an AI assistant that helps with code editing through JSON operations.
+
+When you need to modify code files, you must respond with JSON operations in this exact format:
+
+\`\`\`json
+[
+  {
+    "action": "insert",
+    "file": "path/to/file.js",
+    "line": 10,
+    "code": "const newVariable = 'value';"
+  },
+  {
+    "action": "delete",
+    "file": "path/to/file.js",
+    "line": 15,
+    "code": "const oldVariable = 'old';"
+  }
+]
+\`\`\`
+
+RULES:
+1. Two actions only: "insert" or "delete"
+2. "insert" - Adds code at the specified line number
+3. "delete" - Removes code that EXACTLY matches the "code" field at the specified line
+4. Operations are processed from highest line number to lowest (to avoid line shifts)
+5. If insert and delete target the same line, delete happens first (this replaces the line)
+6. For delete operations, the "code" field must EXACTLY match what's in the file
+7. Line numbers are 1-based (first line is 1, not 0)
+
+EXAMPLES:
+
+Replace a line:
+\`\`\`json
+[
+  {"action": "delete", "file": "config.js", "line": 5, "code": "const port = 3000;"},
+  {"action": "insert", "file": "config.js", "line": 5, "code": "const port = 8080;"}
+]
+\`\`\`
+
+Add multiple lines:
+\`\`\`json
+[
+  {"action": "insert", "file": "app.js", "line": 10, "code": "// New comment\\nconst x = 1;\\nconst y = 2;"}
+]
+\`\`\`
+
+Always wrap JSON operations in \`\`\`json code blocks.`;
+
 // Store conversation history (in-memory, last 10 messages)
-let conversationHistory = [];
+let conversationHistory = [{ role: 'system', content: SYSTEM_PROMPT }];
 const MAX_HISTORY = 10;
 
 // Chat endpoint
@@ -25,10 +75,14 @@ app.post('/api/chat', async (req, res) => {
   try {
     const { message } = req.body;
     
-    // Add user message to history
+    // Add user message to history (keep system prompt)
     conversationHistory.push({ role: 'user', content: message });
-    if (conversationHistory.length > MAX_HISTORY) {
-      conversationHistory = conversationHistory.slice(-MAX_HISTORY);
+    if (conversationHistory.length > MAX_HISTORY + 1) {
+      // Keep system prompt + last MAX_HISTORY messages
+      conversationHistory = [
+        conversationHistory[0], // system prompt
+        ...conversationHistory.slice(-(MAX_HISTORY))
+      ];
     }
 
     // Get response from DeepSeek
@@ -36,8 +90,11 @@ app.post('/api/chat', async (req, res) => {
     
     // Add assistant response to history
     conversationHistory.push({ role: 'assistant', content: response });
-    if (conversationHistory.length > MAX_HISTORY) {
-      conversationHistory = conversationHistory.slice(-MAX_HISTORY);
+    if (conversationHistory.length > MAX_HISTORY + 1) {
+      conversationHistory = [
+        conversationHistory[0],
+        ...conversationHistory.slice(-(MAX_HISTORY))
+      ];
     }
 
     // Check if response contains JSON operations
@@ -109,23 +166,30 @@ app.post('/api/railway/autofix', async (req, res) => {
   try {
     const status = await railway.getDeploymentStatus();
     
-    if (status.status !== 'FAILED') {
+    if (status.status !== 'FAILED' && status.status !== 'CRASHED') {
       return res.json({ message: 'No failed deployment to fix' });
     }
 
     // Create prompt for DeepSeek to fix the issue
-    const fixPrompt = `The deployment failed with the following error:\n\n${status.error}\n\nPlease analyze the error and provide JSON operations to fix the code. Use this format:\n\`\`\`json\n[{"action": "insert|delete", "file": "path/to/file", "line": number, "code": "code here"}]\n\`\`\``;
+    const errorInfo = `BUILD LOGS:\n${status.buildLogs}\n\nDEPLOYMENT LOGS:\n${status.deploymentLogs}`;
+    const fixPrompt = `The deployment failed. Here are the logs:\n\n${errorInfo}\n\nPlease analyze the error and provide JSON operations to fix the code. Remember to use the exact format with "action", "file", "line", and "code" fields.`;
     
     conversationHistory.push({ role: 'user', content: fixPrompt });
-    if (conversationHistory.length > MAX_HISTORY) {
-      conversationHistory = conversationHistory.slice(-MAX_HISTORY);
+    if (conversationHistory.length > MAX_HISTORY + 1) {
+      conversationHistory = [
+        conversationHistory[0],
+        ...conversationHistory.slice(-(MAX_HISTORY))
+      ];
     }
 
     const response = await deepseek.chat(conversationHistory);
     
     conversationHistory.push({ role: 'assistant', content: response });
-    if (conversationHistory.length > MAX_HISTORY) {
-      conversationHistory = conversationHistory.slice(-MAX_HISTORY);
+    if (conversationHistory.length > MAX_HISTORY + 1) {
+      conversationHistory = [
+        conversationHistory[0],
+        ...conversationHistory.slice(-(MAX_HISTORY))
+      ];
     }
 
     res.json({ response, autoFixRequested: true });
@@ -137,7 +201,7 @@ app.post('/api/railway/autofix', async (req, res) => {
 
 // Clear conversation history
 app.post('/api/conversation/clear', (req, res) => {
-  conversationHistory = [];
+  conversationHistory = [{ role: 'system', content: SYSTEM_PROMPT }];
   res.json({ message: 'Conversation history cleared' });
 });
 
