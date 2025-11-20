@@ -71,13 +71,23 @@ Always wrap JSON operations in \`\`\`json code blocks.`;
 let conversationHistory = [{ role: 'system', content: SYSTEM_PROMPT }];
 const MAX_HISTORY = 10;
 
+// Cache for file contents to avoid repeated GitHub API calls
+let fileCache = new Map();
+const CACHE_TTL = 60000; // 1 minute
+
 // Chat endpoint
 app.post('/api/chat', async (req, res) => {
   try {
     const { message } = req.body;
     
+    // Get current file structure and contents for context
+    const fileContext = await getFileContext();
+    
+    // Create enhanced prompt with file context
+    const enhancedMessage = `${message}\n\nCURRENT FILES AND CONTEXT:\n${fileContext}`;
+    
     // Add user message to history (keep system prompt)
-    conversationHistory.push({ role: 'user', content: message });
+    conversationHistory.push({ role: 'user', content: enhancedMessage });
     if (conversationHistory.length > MAX_HISTORY + 1) {
       // Keep system prompt + last MAX_HISTORY messages
       conversationHistory = [
@@ -102,6 +112,10 @@ app.post('/api/chat', async (req, res) => {
     const jsonOperations = extractJSONOperations(response);
     if (jsonOperations.length > 0) {
       const results = await parseAndExecuteJSON(jsonOperations);
+      
+      // Clear file cache since files were modified
+      fileCache.clear();
+      
       return res.json({ 
         response, 
         operations: results,
@@ -115,6 +129,65 @@ app.post('/api/chat', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// Get file context for DeepSeek
+async function getFileContext() {
+  try {
+    const files = await github.listFiles();
+    let context = `Repository contains ${files.length} files:\n\n`;
+    
+    // Get contents of key files (limit to important ones to avoid token limits)
+    const importantFiles = files.filter(file => 
+      file.path.match(/\.(js|ts|json|html|css|md|txt)$/) && 
+      !file.path.includes('node_modules') &&
+      !file.path.includes('.git') &&
+      file.size < 10000 // Only files under 10KB
+    ).slice(0, 10); // Limit to 10 files to avoid token overflow
+    
+    for (const file of importantFiles) {
+      try {
+        let content;
+        
+        // Check cache first
+        if (fileCache.has(file.path) && 
+            Date.now() - fileCache.get(file.path).timestamp < CACHE_TTL) {
+          content = fileCache.get(file.path).content;
+        } else {
+          const fileData = await github.getFileContent(file.path);
+          content = fileData.content;
+          // Cache the content
+          fileCache.set(file.path, {
+            content: content,
+            timestamp: Date.now()
+          });
+        }
+        
+        context += `FILE: ${file.path} (${file.size} bytes)\n`;
+        context += `CONTENT:\n\`\`\`\n${content}\n\`\`\`\n\n`;
+        
+      } catch (error) {
+        context += `FILE: ${file.path} (Error reading: ${error.message})\n\n`;
+      }
+    }
+    
+    // Add remaining file list without content
+    const otherFiles = files.filter(file => 
+      !importantFiles.some(imp => imp.path === file.path)
+    );
+    
+    if (otherFiles.length > 0) {
+      context += `OTHER FILES (${otherFiles.length}):\n`;
+      otherFiles.forEach(file => {
+        context += `- ${file.path} (${file.size} bytes)\n`;
+      });
+    }
+    
+    return context;
+  } catch (error) {
+    console.error('Error getting file context:', error);
+    return 'Unable to load file context. Please check repository access.';
+  }
+}
 
 // Get repo files
 app.get('/api/repo/files', async (req, res) => {
@@ -171,9 +244,12 @@ app.post('/api/railway/autofix', async (req, res) => {
       return res.json({ message: 'No failed deployment to fix' });
     }
 
-    // Create prompt for DeepSeek to fix the issue
+    // Get file context for better autofix
+    const fileContext = await getFileContext();
+    
+    // Create enhanced prompt for DeepSeek to fix the issue
     const errorInfo = `BUILD LOGS:\n${status.buildLogs}\n\nDEPLOYMENT LOGS:\n${status.deploymentLogs}`;
-    const fixPrompt = `The deployment failed. Here are the logs:\n\n${errorInfo}\n\nPlease analyze the error and provide JSON operations to fix the code. Remember to use the exact format with "action", "file", "line", and "code" fields.`;
+    const fixPrompt = `The deployment failed. Here are the logs:\n\n${errorInfo}\n\nCURRENT FILES AND CONTEXT:\n${fileContext}\n\nPlease analyze the error and provide JSON operations to fix the code. Remember to use the exact format with "action", "file", "line", and "code" fields.`;
     
     conversationHistory.push({ role: 'user', content: fixPrompt });
     if (conversationHistory.length > MAX_HISTORY + 1) {
@@ -193,6 +269,9 @@ app.post('/api/railway/autofix', async (req, res) => {
       ];
     }
 
+    // Clear file cache since autofix might modify files
+    fileCache.clear();
+
     res.json({ response, autoFixRequested: true });
   } catch (error) {
     console.error('Auto-fix error:', error);
@@ -203,7 +282,14 @@ app.post('/api/railway/autofix', async (req, res) => {
 // Clear conversation history
 app.post('/api/conversation/clear', (req, res) => {
   conversationHistory = [{ role: 'system', content: SYSTEM_PROMPT }];
+  fileCache.clear(); // Clear file cache as well
   res.json({ message: 'Conversation history cleared' });
+});
+
+// Clear file cache endpoint
+app.post('/api/cache/clear', (req, res) => {
+  fileCache.clear();
+  res.json({ message: 'File cache cleared' });
 });
 
 // Extract JSON operations from response
