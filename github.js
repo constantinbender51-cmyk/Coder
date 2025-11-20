@@ -1,5 +1,4 @@
-[file name]: github.js
-[file content begin]
+
 const axios = require('axios');
 
 const GITHUB_API_URL = 'https://api.github.com';
@@ -130,4 +129,3 @@ module.exports = {
   createFile,
   deleteFile
 };
-[file content end]
