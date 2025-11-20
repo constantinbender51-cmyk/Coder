@@ -13,6 +13,8 @@ const closeFileBtn = document.getElementById('closeFileBtn');
 const autofixModal = document.getElementById('autofixModal');
 const autofixYes = document.getElementById('autofixYes');
 const autofixNo = document.getElementById('autofixNo');
+const menuToggle = document.getElementById('menuToggle');
+const sidebar = document.getElementById('sidebar');
 
 let lastDeploymentStatus = null;
 
@@ -22,6 +24,20 @@ checkDeploymentStatus();
 
 // Set up periodic deployment check
 setInterval(checkDeploymentStatus, 30000); // Check every 30 seconds
+
+// Mobile menu toggle
+menuToggle.addEventListener('click', () => {
+    sidebar.classList.toggle('active');
+});
+
+// Close sidebar when clicking outside on mobile
+document.addEventListener('click', (e) => {
+    if (window.innerWidth <= 768) {
+        if (!sidebar.contains(e.target) && !menuToggle.contains(e.target)) {
+            sidebar.classList.remove('active');
+        }
+    }
+});
 
 // Event listeners
 sendBtn.addEventListener('click', sendMessage);
@@ -135,7 +151,13 @@ async function loadFiles() {
             const fileItem = document.createElement('div');
             fileItem.className = 'file-item';
             fileItem.textContent = file.path;
-            fileItem.addEventListener('click', () => loadFileContent(file.path));
+            fileItem.addEventListener('click', () => {
+                loadFileContent(file.path);
+                // Close sidebar on mobile after selecting file
+                if (window.innerWidth <= 768) {
+                    sidebar.classList.remove('active');
+                }
+            });
             fileList.appendChild(fileItem);
         });
     } catch (error) {
@@ -154,8 +176,9 @@ async function loadFileContent(filePath) {
             return;
         }
         
+        // Fix: access the content property correctly
         currentFileName.textContent = filePath;
-        fileContent.textContent = data.content;
+        fileContent.textContent = data.content.content; // Fixed: was data.content, now data.content.content
         fileViewer.style.display = 'block';
     } catch (error) {
         alert(`Error loading file: ${error.message}`);
@@ -198,6 +221,10 @@ async function checkDeploymentStatus() {
         
         if (data.url) {
             statusHtml += `<div style="margin-top: 8px;"><a href="${data.url}" target="_blank" style="font-size: 12px;">View Deployment</a></div>`;
+        }
+        
+        if (data.environment) {
+            statusHtml += `<div style="margin-top: 8px; font-size: 12px; color: #666;">Env: ${data.environment}</div>`;
         }
         
         deploymentStatus.innerHTML = statusHtml;
