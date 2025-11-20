@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeepSeek Chat</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <h3>Repository Files</h3>
+            <button id="refreshFilesBtn" class="btn-secondary">Refresh</button>
+            <div id="fileList" class="file-list"></div>
+            
+            <div class="deployment-status">
+                <h3>Deployment Status</h3>
+                <button id="refreshStatusBtn" class="btn-secondary">Refresh</button>
+                <div id="deploymentStatus"></div>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="file-viewer" id="fileViewer" style="display: none;">
+                <div class="file-viewer-header">
+                    <span id="currentFileName"></span>
+                    <button id="closeFileBtn" class="btn-close">×</button>
+                </div>
+                <pre id="fileContent"></pre>
+            </div>
+
+            <div class="chat-container">
+                <div id="chatMessages" class="chat-messages"></div>
+                <div class="chat-input-container">
+                    <textarea id="chatInput" placeholder="Type your message..." rows="3"></textarea>
+                    <button id="sendBtn" class="btn-primary">Send</button>
+                    <button id="clearBtn" class="btn-secondary">Clear</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="autofixModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <h3>Deployment Failed</h3>
+            <p>The deployment has failed. Would you like to attempt an automatic fix?</p>
+            <div class="modal-buttons">
+                <button id="autofixYes" class="btn-primary">Yes, fix it</button>
+                <button id="autofixNo" class="btn-secondary">No, thanks</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="client.js"></script>
+</body>
+</html>
