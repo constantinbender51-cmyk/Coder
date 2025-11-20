@@ -91,6 +91,8 @@ Add multiple lines:
 ]
 \`\`\`
 
+If you're providing commands, configuration, or other non-JSON responses, just provide them as regular text.
+
 Always wrap JSON operations in \`\`\`json code blocks.`;
 
 // Store conversation history (in-memory, last 10 messages)
@@ -134,19 +136,28 @@ app.post('/api/chat', async (req, res) => {
       ];
     }
 
-    // Check if response contains JSON operations
+    // Check if response contains JSON operations with robust parsing
     const jsonOperations = extractJSONOperations(response);
     if (jsonOperations.length > 0) {
-      const results = await parseAndExecuteJSON(jsonOperations);
-      
-      // Clear file cache since files were modified
-      fileCache.clear();
-      
-      return res.json({ 
-        response, 
-        operations: results,
-        message: 'Operations executed'
-      });
+      try {
+        const results = await parseAndExecuteJSON(jsonOperations);
+        
+        // Clear file cache since files were modified
+        fileCache.clear();
+        
+        return res.json({ 
+          response, 
+          operations: results,
+          message: 'Operations executed'
+        });
+      } catch (error) {
+        console.error('Error executing operations:', error);
+        // Return the response anyway, but with error info
+        return res.json({ 
+          response,
+          error: `Failed to execute operations: ${error.message}`
+        });
+      }
     }
 
     res.json({ response });
@@ -164,7 +175,7 @@ async function getFileContext() {
     
     // Get contents of key files (limit to important ones to avoid token limits)
     const importantFiles = files.filter(file => 
-      file.path.match(/\.(js|ts|json|html|css|md|txt|yml|yaml|xml)$/) && 
+      file.path.match(/\.(js|ts|json|html|css|md|txt|yml|yaml|xml|py|rb|java|c|cpp|go|rs|php)$/) && 
       !file.path.includes('node_modules') &&
       !file.path.includes('.git') &&
       file.size < 10000 // Only files under 10KB
@@ -231,7 +242,7 @@ app.get('/api/repo/file', async (req, res) => {
   try {
     const { path: filePath } = req.query;
     const content = await github.getFileContent(filePath);
-    res.json({ content: content.content }); // Fixed: return just the content string
+    res.json({ content: content.content });
   } catch (error) {
     console.error('Get file error:', error);
     res.status(500).json({ error: error.message });
@@ -318,26 +329,69 @@ app.post('/api/cache/clear', (req, res) => {
   res.json({ message: 'File cache cleared' });
 });
 
-// Extract JSON operations from response
+// Extract JSON operations from response with robust parsing
 function extractJSONOperations(text) {
   const jsonBlocks = [];
-  const codeBlockRegex = /```json\s*([\s\S]*?)```/g;
-  let match;
   
-  while ((match = codeBlockRegex.exec(text)) !== null) {
-    try {
-      const parsed = JSON.parse(match[1]);
-      if (Array.isArray(parsed)) {
-        jsonBlocks.push(...parsed);
-      } else {
-        jsonBlocks.push(parsed);
+  // Try multiple patterns to extract JSON
+  const patterns = [
+    // Pattern 1: Standard ```json ``` blocks
+    /```json\s*([\s\S]*?)```/g,
+    // Pattern 2: Generic ``` ``` blocks that might contain JSON
+    /```\s*([\s\S]*?)```/g,
+    // Pattern 3: JSON array pattern
+    /\[\s*\{[\s\S]*?\}\s*\]/g,
+    // Pattern 4: Loose JSON object/array detection
+    /(\[\s*\{[\s\S]*\}\]|\{\s*[\s\S]*\})/g
+  ];
+
+  for (const pattern of patterns) {
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      try {
+        const content = match[1] || match[0];
+        const cleanedContent = cleanJSONContent(content);
+        const parsed = JSON.parse(cleanedContent);
+        
+        if (Array.isArray(parsed)) {
+          // Validate that it's an array of operations
+          if (parsed.length > 0 && parsed[0].action && parsed[0].file) {
+            jsonBlocks.push(...parsed);
+          }
+        } else if (parsed.action && parsed.file) {
+          // Single operation object
+          jsonBlocks.push(parsed);
+        }
+      } catch (e) {
+        // Silently fail and try next pattern
+        continue;
       }
-    } catch (e) {
-      console.error('Failed to parse JSON block:', e);
+    }
+    
+    // If we found valid operations, stop trying other patterns
+    if (jsonBlocks.length > 0) {
+      break;
     }
   }
   
   return jsonBlocks;
+}
+
+// Clean JSON content before parsing
+function cleanJSONContent(content) {
+  return content
+    // Remove trailing commas
+    .replace(/,\s*}/g, '}')
+    .replace(/,\s*]/g, ']')
+    // Fix common JSON issues
+    .replace(/(['"])?([a-zA-Z0-9_]+)(['"])?\s*:/g, '"$2":') // Ensure proper quotes around keys
+    .replace(/:\s*'([^']*)'/g, ': "$1"') // Replace single quotes with double quotes
+    .replace(/\\'/g, "'") // Fix escaped single quotes
+    .replace(/\\n/g, '\n') // Convert escaped newlines to actual newlines
+    .replace(/\\t/g, '\t') // Convert escaped tabs to actual tabs
+    // Remove any trailing text after the JSON
+    .replace(/,\s*$/, '')
+    .trim();
 }
 
 app.listen(PORT, () => {
