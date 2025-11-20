@@ -4,6 +4,7 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const path = require('path');
+const extractJson = require('extract-json');
 
 const deepseek = require('./deepseek');
 const github = require('./github');
@@ -47,9 +48,6 @@ When you need to modify code files, you must respond with JSON operations in thi
   }
 ]
 \`\`\`
-
-Railway deployment may require language specific files for libraries and to define the main executable. 
-For a python deployment this might be requirements.txt and a Procfile
 
 RULES:
 1. Four actions available: "insert", "delete", "create", "delete_file"
@@ -139,7 +137,7 @@ app.post('/api/chat', async (req, res) => {
       ];
     }
 
-    // Check if response contains JSON operations with robust parsing
+    // Check if response contains JSON operations using extract-json
     const jsonOperations = extractJSONOperations(response);
     console.log('Extracted JSON operations:', jsonOperations.length);
     
@@ -153,7 +151,7 @@ app.post('/api/chat', async (req, res) => {
         return res.json({ 
           response, 
           operations: results,
-          message: `Executed ${results.length} operation(s)`
+          message: `Executed ${results.filter(r => r.success).length} operation(s)`
         });
       } catch (error) {
         console.error('Error executing operations:', error);
@@ -334,111 +332,58 @@ app.post('/api/cache/clear', (req, res) => {
   res.json({ message: 'File cache cleared' });
 });
 
-// Extract JSON operations from response with robust parsing
+// Extract JSON operations from response using extract-json library
 function extractJSONOperations(text) {
-  const jsonBlocks = [];
+  if (!text) return [];
   
-  if (!text) return jsonBlocks;
-  
-  console.log('Parsing response for JSON operations...');
-  
-  // Try multiple patterns to extract JSON
-  const patterns = [
-    // Pattern 1: Standard ```json ``` blocks (most common)
-    /```json\s*([\s\S]*?)```/g,
-    // Pattern 2: Generic ``` ``` blocks that might contain JSON
-    /```(?:json)?\s*([\s\S]*?)```/g,
-    // Pattern 3: Direct JSON array/object at start of text
-    /^\s*(\[\s*\{[\s\S]*?\}\])\s*$/m,
-    // Pattern 4: JSON array anywhere in text
-    /(\[\s*\{[\s\S]*?\}\s*\])/g
-  ];
-
-  for (const pattern of patterns) {
-    try {
-      const matches = text.match(pattern);
-      if (!matches) continue;
-      
-      for (const match of matches) {
-        try {
-          let jsonContent = match;
-          
-          // Extract content from code blocks
-          if (match.startsWith('```')) {
-            const contentMatch = match.match(/```(?:json)?\s*([\s\S]*?)```/);
-            if (contentMatch && contentMatch[1]) {
-              jsonContent = contentMatch[1];
-            }
-          }
-          
-          const cleanedContent = cleanJSONContent(jsonContent);
-          console.log('Attempting to parse cleaned content...');
-          
-          const parsed = JSON.parse(cleanedContent);
-          
-          if (Array.isArray(parsed)) {
-            // Validate that it's an array of operations
-            const validOperations = parsed.filter(op => 
-              op && typeof op === 'object' && op.action && op.file
-            );
-            if (validOperations.length > 0) {
-              console.log(`Found ${validOperations.length} valid operations`);
-              jsonBlocks.push(...validOperations);
-              break; // Stop after first successful parse
-            }
-          } else if (parsed.action && parsed.file) {
-            // Single operation object
-            console.log('Found single operation');
-            jsonBlocks.push(parsed);
-            break;
-          }
-        } catch (parseError) {
-          console.log('Parse error for match, trying next pattern:', parseError.message);
-          continue;
+  try {
+    console.log('Extracting JSON from response...');
+    
+    // Use extract-json library to find all JSON in the text
+    const jsonBlocks = extractJson(text);
+    console.log(`Found ${jsonBlocks.length} JSON blocks`);
+    
+    const operations = [];
+    
+    for (const jsonBlock of jsonBlocks) {
+      try {
+        let parsed;
+        
+        // Handle both string and object outputs from extract-json
+        if (typeof jsonBlock === 'string') {
+          parsed = JSON.parse(jsonBlock);
+        } else {
+          parsed = jsonBlock;
         }
+        
+        // Handle array of operations
+        if (Array.isArray(parsed)) {
+          const validOperations = parsed.filter(op => 
+            op && typeof op === 'object' && op.action && op.file
+          );
+          if (validOperations.length > 0) {
+            console.log(`Found ${validOperations.length} valid operations in array`);
+            operations.push(...validOperations);
+          }
+        } 
+        // Handle single operation object
+        else if (parsed.action && parsed.file) {
+          console.log('Found single operation object');
+          operations.push(parsed);
+        }
+      } catch (parseError) {
+        console.log('Failed to parse JSON block:', parseError.message);
+        continue;
       }
-      
-      // If we found valid operations, stop trying other patterns
-      if (jsonBlocks.length > 0) {
-        break;
-      }
-    } catch (error) {
-      console.log('Pattern matching error:', error.message);
-      continue;
     }
+    
+    console.log(`Total valid operations extracted: ${operations.length}`);
+    return operations;
+    
+  } catch (error) {
+    console.error('Error extracting JSON:', error);
+    return [];
   }
-  
-  console.log(`Total operations extracted: ${jsonBlocks.length}`);
-  return jsonBlocks;
-}
-
-// Clean JSON content before parsing
-function cleanJSONContent(content) {
-  if (!content) return '';
-  
-  return content
-    // Remove any markdown code block indicators that might remain
-    .replace(/```json/g, '')
-    .replace(/```/g, '')
-    // Fix trailing commas in objects and arrays
-    .replace(/,\s*}/g, '}')
-    .replace(/,\s*]/g, ']')
-    // Ensure proper quotes around keys
-    .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*:)/g, '$1"$2"$3')
-    // Fix unescaped quotes in strings
-    .replace(/: \"(.*?[^\\])\"/g, (match, str) => {
-      return ': \"' + str.replace(/\"/g, '\\"') + '\"';
-    })
-    // Convert single quotes to double quotes for JSON compliance
-    .replace(/'/g, '"')
-    // Fix escaped characters
-    .replace(/\\\\/g, '\\')
-    .replace(/\\n/g, '\n')
-    .replace(/\\t/g, '\t')
-    .replace(/\\r/g, '\r')
-    // Remove any trailing commas or whitespace
-    .replace(/,\s*$/, '')
-    .trim();
 }
 
 app.listen(PORT, () => {
