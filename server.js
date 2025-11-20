@@ -1,3 +1,4 @@
+
 require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -131,7 +132,7 @@ app.get('/api/repo/file', async (req, res) => {
   try {
     const { path: filePath } = req.query;
     const content = await github.getFileContent(filePath);
-    res.json({ content });
+    res.json({ content: content.content }); // Fixed: return just the content string
   } catch (error) {
     console.error('Get file error:', error);
     res.status(500).json({ error: error.message });
