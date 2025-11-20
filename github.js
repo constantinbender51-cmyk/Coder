@@ -1,3 +1,5 @@
+[file name]: github.js
+[file content begin]
 const axios = require('axios');
 
 const GITHUB_API_URL = 'https://api.github.com';
@@ -78,8 +80,54 @@ async function updateFile(filePath, content, sha, message = 'Update file via cha
   }
 }
 
+// Create new file
+async function createFile(filePath, content, message = 'Create file via chat interface') {
+  try {
+    const encodedContent = Buffer.from(content).toString('base64');
+    
+    const response = await api.put(`/repos/${REPO}/contents/${filePath}`, {
+      message,
+      content: encodedContent
+      // No SHA for new files
+    });
+
+    return {
+      success: true,
+      path: filePath,
+      commit: response.data.commit.sha
+    };
+  } catch (error) {
+    console.error('GitHub create file error:', error.response?.data || error.message);
+    throw new Error(`Failed to create file: ${filePath}`);
+  }
+}
+
+// Delete file
+async function deleteFile(filePath, sha, message = 'Delete file via chat interface') {
+  try {
+    const response = await api.delete(`/repos/${REPO}/contents/${filePath}`, {
+      data: {
+        message,
+        sha: sha
+      }
+    });
+
+    return {
+      success: true,
+      path: filePath,
+      commit: response.data.commit.sha
+    };
+  } catch (error) {
+    console.error('GitHub delete file error:', error.response?.data || error.message);
+    throw new Error(`Failed to delete file: ${filePath}`);
+  }
+}
+
 module.exports = {
   listFiles,
   getFileContent,
-  updateFile
+  updateFile,
+  createFile,
+  deleteFile
 };
+[file content end]
