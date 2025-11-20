@@ -14,7 +14,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: '10mb' }));
 app.use(express.static('public'));
 
 // System prompt for DeepSeek
@@ -138,6 +138,8 @@ app.post('/api/chat', async (req, res) => {
 
     // Check if response contains JSON operations with robust parsing
     const jsonOperations = extractJSONOperations(response);
+    console.log('Extracted JSON operations:', jsonOperations.length);
+    
     if (jsonOperations.length > 0) {
       try {
         const results = await parseAndExecuteJSON(jsonOperations);
@@ -148,7 +150,7 @@ app.post('/api/chat', async (req, res) => {
         return res.json({ 
           response, 
           operations: results,
-          message: 'Operations executed'
+          message: `Executed ${results.length} operation(s)`
         });
       } catch (error) {
         console.error('Error executing operations:', error);
@@ -333,63 +335,105 @@ app.post('/api/cache/clear', (req, res) => {
 function extractJSONOperations(text) {
   const jsonBlocks = [];
   
+  if (!text) return jsonBlocks;
+  
+  console.log('Parsing response for JSON operations...');
+  
   // Try multiple patterns to extract JSON
   const patterns = [
-    // Pattern 1: Standard ```json ``` blocks
+    // Pattern 1: Standard ```json ``` blocks (most common)
     /```json\s*([\s\S]*?)```/g,
     // Pattern 2: Generic ``` ``` blocks that might contain JSON
-    /```\s*([\s\S]*?)```/g,
-    // Pattern 3: JSON array pattern
-    /\[\s*\{[\s\S]*?\}\s*\]/g,
-    // Pattern 4: Loose JSON object/array detection
-    /(\[\s*\{[\s\S]*\}\]|\{\s*[\s\S]*\})/g
+    /```(?:json)?\s*([\s\S]*?)```/g,
+    // Pattern 3: Direct JSON array/object at start of text
+    /^\s*(\[\s*\{[\s\S]*?\}\])\s*$/m,
+    // Pattern 4: JSON array anywhere in text
+    /(\[\s*\{[\s\S]*?\}\s*\])/g
   ];
 
   for (const pattern of patterns) {
-    let match;
-    while ((match = pattern.exec(text)) !== null) {
-      try {
-        const content = match[1] || match[0];
-        const cleanedContent = cleanJSONContent(content);
-        const parsed = JSON.parse(cleanedContent);
-        
-        if (Array.isArray(parsed)) {
-          // Validate that it's an array of operations
-          if (parsed.length > 0 && parsed[0].action && parsed[0].file) {
-            jsonBlocks.push(...parsed);
+    try {
+      const matches = text.match(pattern);
+      if (!matches) continue;
+      
+      for (const match of matches) {
+        try {
+          let jsonContent = match;
+          
+          // Extract content from code blocks
+          if (match.startsWith('```')) {
+            const contentMatch = match.match(/```(?:json)?\s*([\s\S]*?)```/);
+            if (contentMatch && contentMatch[1]) {
+              jsonContent = contentMatch[1];
+            }
           }
-        } else if (parsed.action && parsed.file) {
-          // Single operation object
-          jsonBlocks.push(parsed);
+          
+          const cleanedContent = cleanJSONContent(jsonContent);
+          console.log('Attempting to parse cleaned content...');
+          
+          const parsed = JSON.parse(cleanedContent);
+          
+          if (Array.isArray(parsed)) {
+            // Validate that it's an array of operations
+            const validOperations = parsed.filter(op => 
+              op && typeof op === 'object' && op.action && op.file
+            );
+            if (validOperations.length > 0) {
+              console.log(`Found ${validOperations.length} valid operations`);
+              jsonBlocks.push(...validOperations);
+              break; // Stop after first successful parse
+            }
+          } else if (parsed.action && parsed.file) {
+            // Single operation object
+            console.log('Found single operation');
+            jsonBlocks.push(parsed);
+            break;
+          }
+        } catch (parseError) {
+          console.log('Parse error for match, trying next pattern:', parseError.message);
+          continue;
         }
-      } catch (e) {
-        // Silently fail and try next pattern
-        continue;
       }
-    }
-    
-    // If we found valid operations, stop trying other patterns
-    if (jsonBlocks.length > 0) {
-      break;
+      
+      // If we found valid operations, stop trying other patterns
+      if (jsonBlocks.length > 0) {
+        break;
+      }
+    } catch (error) {
+      console.log('Pattern matching error:', error.message);
+      continue;
     }
   }
   
+  console.log(`Total operations extracted: ${jsonBlocks.length}`);
   return jsonBlocks;
 }
 
 // Clean JSON content before parsing
 function cleanJSONContent(content) {
+  if (!content) return '';
+  
   return content
-    // Remove trailing commas
+    // Remove any markdown code block indicators that might remain
+    .replace(/```json/g, '')
+    .replace(/```/g, '')
+    // Fix trailing commas in objects and arrays
     .replace(/,\s*}/g, '}')
     .replace(/,\s*]/g, ']')
-    // Fix common JSON issues
-    .replace(/(['"])?([a-zA-Z0-9_]+)(['"])?\s*:/g, '"$2":') // Ensure proper quotes around keys
-    .replace(/:\s*'([^']*)'/g, ': "$1"') // Replace single quotes with double quotes
-    .replace(/\\'/g, "'") // Fix escaped single quotes
-    .replace(/\\n/g, '\n') // Convert escaped newlines to actual newlines
-    .replace(/\\t/g, '\t') // Convert escaped tabs to actual tabs
-    // Remove any trailing text after the JSON
+    // Ensure proper quotes around keys
+    .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*:)/g, '$1"$2"$3')
+    // Fix unescaped quotes in strings
+    .replace(/: \"(.*?[^\\])\"/g, (match, str) => {
+      return ': \"' + str.replace(/\"/g, '\\"') + '\"';
+    })
+    // Convert single quotes to double quotes for JSON compliance
+    .replace(/'/g, '"')
+    // Fix escaped characters
+    .replace(/\\\\/g, '\\')
+    .replace(/\\n/g, '\n')
+    .replace(/\\t/g, '\t')
+    .replace(/\\r/g, '\r')
+    // Remove any trailing commas or whitespace
     .replace(/,\s*$/, '')
     .trim();
 }
