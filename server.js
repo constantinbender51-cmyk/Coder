@@ -48,6 +48,9 @@ When you need to modify code files, you must respond with JSON operations in thi
 ]
 \`\`\`
 
+Railway deployment may require language specific files for libraries and to define the main executable. 
+For a python deployment this might be requirements.txt and a Procfile
+
 RULES:
 1. Four actions available: "insert", "delete", "create", "delete_file"
 2. "insert" - Adds code at the specified line number
