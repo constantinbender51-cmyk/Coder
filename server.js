@@ -1,4 +1,5 @@
-
+[file name]: server.js
+[file content begin]
 require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -35,20 +36,46 @@ When you need to modify code files, you must respond with JSON operations in thi
     "file": "path/to/file.js",
     "line": 15,
     "code": "const oldVariable = 'old';"
+  },
+  {
+    "action": "create",
+    "file": "path/to/newfile.js",
+    "content": "// New file content\\nconst example = 'hello';"
+  },
+  {
+    "action": "delete_file",
+    "file": "path/to/oldfile.js"
   }
 ]
 \`\`\`
 
 RULES:
-1. Two actions only: "insert" or "delete"
+1. Four actions available: "insert", "delete", "create", "delete_file"
 2. "insert" - Adds code at the specified line number
 3. "delete" - Removes code that EXACTLY matches the "code" field at the specified line
-4. Operations are processed from highest line number to lowest (to avoid line shifts)
-5. If insert and delete target the same line, delete happens first (this replaces the line)
-6. For delete operations, the "code" field must EXACTLY match what's in the file
-7. Line numbers are 1-based (first line is 1, not 0)
+4. "create" - Creates a new file with the specified content
+5. "delete_file" - Deletes an entire file
+6. Operations are processed in this order: delete_file, delete, insert, create
+7. For delete operations, the "code" field must EXACTLY match what's in the file
+8. Line numbers are 1-based (first line is 1, not 0)
+9. For "create" action, use "content" field instead of "code"
+10. For "delete_file" action, only "file" field is needed
 
 EXAMPLES:
+
+Create a new file:
+\`\`\`json
+[
+  {"action": "create", "file": "utils/helpers.js", "content": "// Helper functions\\nexport function formatDate(date) {\\n  return date.toISOString();\\n}"}
+]
+\`\`\`
+
+Delete a file:
+\`\`\`json
+[
+  {"action": "delete_file", "file": "old-config.js"}
+]
+\`\`\`
 
 Replace a line:
 \`\`\`json
@@ -138,7 +165,7 @@ async function getFileContext() {
     
     // Get contents of key files (limit to important ones to avoid token limits)
     const importantFiles = files.filter(file => 
-      file.path.match(/\.(js|ts|json|html|css|md|txt)$/) && 
+      file.path.match(/\.(js|ts|json|html|css|md|txt|yml|yaml|xml)$/) && 
       !file.path.includes('node_modules') &&
       !file.path.includes('.git') &&
       file.size < 10000 // Only files under 10KB
@@ -249,7 +276,7 @@ app.post('/api/railway/autofix', async (req, res) => {
     
     // Create enhanced prompt for DeepSeek to fix the issue
     const errorInfo = `BUILD LOGS:\n${status.buildLogs}\n\nDEPLOYMENT LOGS:\n${status.deploymentLogs}`;
-    const fixPrompt = `The deployment failed. Here are the logs:\n\n${errorInfo}\n\nCURRENT FILES AND CONTEXT:\n${fileContext}\n\nPlease analyze the error and provide JSON operations to fix the code. Remember to use the exact format with "action", "file", "line", and "code" fields.`;
+    const fixPrompt = `The deployment failed. Here are the logs:\n\n${errorInfo}\n\nCURRENT FILES AND CONTEXT:\n${fileContext}\n\nPlease analyze the error and provide JSON operations to fix the code. Remember to use the exact format with "action", "file", "line", and "code" fields. You can create new files or delete problematic files if needed.`;
     
     conversationHistory.push({ role: 'user', content: fixPrompt });
     if (conversationHistory.length > MAX_HISTORY + 1) {
@@ -317,3 +344,4 @@ function extractJSONOperations(text) {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+[file content end]
