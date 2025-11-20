@@ -1,5 +1,4 @@
-[file name]: json-parser.js
-[file content begin]
+
 const github = require('./github');
 
 // Parse and execute JSON operations
@@ -351,4 +350,3 @@ function insertAtLine(lines, lineNumber, codeToInsert) {
 module.exports = {
   parseAndExecuteJSON
 };
-[file content end]
