@@ -1,3 +1,4 @@
+
 const chatMessages = document.getElementById('chatMessages');
 const chatInput = document.getElementById('chatInput');
 const sendBtn = document.getElementById('sendBtn');
@@ -17,8 +18,19 @@ const menuToggle = document.getElementById('menuToggle');
 const sidebar = document.getElementById('sidebar');
 
 let lastDeploymentStatus = null;
+let currentSpeech = null;
+let isSpeechSupported = false;
+
+// Check speech synthesis support
+function checkSpeechSupport() {
+    isSpeechSupported = 'speechSynthesis' in window;
+    if (!isSpeechSupported) {
+        console.log('Speech synthesis not supported in this browser');
+    }
+}
 
 // Initialize
+checkSpeechSupport();
 loadFiles();
 checkDeploymentStatus();
 
@@ -87,6 +99,11 @@ async function sendMessage() {
         } else {
             addMessage('assistant', data.response);
             
+            // Auto-play TTS for assistant response
+            if (isSpeechSupported) {
+                speakText(data.response);
+            }
+            
             if (data.operations) {
                 const opsMessage = `✓ Executed ${data.operations.length} operation(s) on GitHub`;
                 addMessage('system', opsMessage);
@@ -106,6 +123,16 @@ function addMessage(role, content) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${role}`;
     
+    const headerDiv = document.createElement('div');
+    headerDiv.className = 'message-header';
+    
+    const roleSpan = document.createElement('span');
+    roleSpan.className = 'message-role';
+    roleSpan.textContent = role === 'user' ? 'You' : 'Assistant';
+    
+    const actionsDiv = document.createElement('div');
+    actionsDiv.className = 'message-actions';
+    
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content';
     
@@ -115,15 +142,97 @@ function addMessage(role, content) {
     });
     
     contentDiv.innerHTML = content.replace(/\n/g, '<br>');
+    
+    // Add TTS button for assistant messages
+    if (role === 'assistant' && isSpeechSupported) {
+        const ttsButton = document.createElement('button');
+        ttsButton.className = 'tts-button';
+        ttsButton.innerHTML = '🔊';
+        ttsButton.title = 'Read aloud';
+        ttsButton.addEventListener('click', () => {
+            speakText(getTextContent(content));
+        });
+        actionsDiv.appendChild(ttsButton);
+    }
+    
+    headerDiv.appendChild(roleSpan);
+    headerDiv.appendChild(actionsDiv);
+    
+    messageDiv.appendChild(headerDiv);
     messageDiv.appendChild(contentDiv);
     chatMessages.appendChild(messageDiv);
     chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+// Speak text using Web Speech API
+function speakText(text) {
+    // Stop any current speech
+    if (currentSpeech) {
+        window.speechSynthesis.cancel();
+    }
+    
+    // Clean text - remove code blocks and markdown
+    const cleanText = getTextContent(text);
+    
+    if (!cleanText.trim()) return;
+    
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    utterance.volume = 0.8;
+    
+    utterance.onstart = () => {
+        // Add visual indicator that speech is playing
+        const ttsButtons = document.querySelectorAll('.tts-button');
+        ttsButtons.forEach(btn => btn.classList.add('playing'));
+    };
+    
+    utterance.onend = () => {
+        const ttsButtons = document.querySelectorAll('.tts-button');
+        ttsButtons.forEach(btn => btn.classList.remove('playing'));
+        currentSpeech = null;
+    };
+    
+    utterance.onerror = (event) => {
+        console.error('Speech synthesis error:', event);
+        const ttsButtons = document.querySelectorAll('.tts-button');
+        ttsButtons.forEach(btn => btn.classList.remove('playing'));
+        currentSpeech = null;
+    };
+    
+    currentSpeech = utterance;
+    window.speechSynthesis.speak(utterance);
+}
+
+// Extract clean text content (remove markdown and code blocks)
+function getTextContent(text) {
+    // Remove code blocks
+    let cleanText = text.replace(/```[\s\S]*?```/g, '');
+    // Remove inline code
+    cleanText = cleanText.replace(/`([^`]+)`/g, '$1');
+    // Remove markdown links
+    cleanText = cleanText.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+    // Remove multiple newlines
+    cleanText = cleanText.replace(/\n\s*\n/g, '\n');
+    
+    return cleanText.trim();
+}
+
+// Stop current speech
+function stopSpeech() {
+    if (currentSpeech) {
+        window.speechSynthesis.cancel();
+        currentSpeech = null;
+    }
 }
 
 // Clear conversation
 async function clearConversation() {
     if (!confirm('Clear conversation history?')) return;
 
+    // Stop any ongoing speech
+    stopSpeech();
+    
     try {
         await fetch('/api/conversation/clear', { method: 'POST' });
         chatMessages.innerHTML = '';
@@ -176,9 +285,9 @@ async function loadFileContent(filePath) {
             return;
         }
         
-        // Fix: access the content property correctly
+        // Fixed: access the content property correctly
         currentFileName.textContent = filePath;
-        fileContent.textContent = data.content.content; // Fixed: was data.content, now data.content.content
+        fileContent.textContent = data.content; // Fixed: was data.content.content, now data.content
         fileViewer.style.display = 'block';
     } catch (error) {
         alert(`Error loading file: ${error.message}`);
@@ -259,6 +368,11 @@ async function requestAutofix() {
             addMessage('assistant', `Error: ${data.error}`);
         } else {
             addMessage('assistant', data.response);
+            
+            // Auto-play TTS for autofix response
+            if (isSpeechSupported) {
+                speakText(data.response);
+            }
         }
     } catch (error) {
         addMessage('assistant', `Error requesting autofix: ${error.message}`);
@@ -273,3 +387,10 @@ function escapeHtml(text) {
     div.textContent = text;
     return div.innerHTML;
 }
+
+// Handle page visibility change to stop speech when tab is hidden
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden && currentSpeech) {
+        stopSpeech();
+    }
+});
