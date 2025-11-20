@@ -2,7 +2,7 @@ const axios = require('axios');
 
 const RAILWAY_API_URL = 'https://backboard.railway.app/graphql/v2';
 const API_KEY = process.env.RAILWAY_API_KEY;
-const PROJECT_ID = process.env.RAILWAY_PROJECT_ID;
+const PROJECT_ID = process.env.RAILWAY_TARGET_ID;
 
 const api = axios.create({
   baseURL: RAILWAY_API_URL,
