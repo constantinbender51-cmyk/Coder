@@ -1,4 +1,5 @@
-
+[file name]: json-parser.js
+[file content begin]
 const github = require('./github');
 
 // Parse and execute JSON operations
@@ -7,24 +8,28 @@ async function parseAndExecuteJSON(operations) {
     operations = [operations];
   }
 
+  // Validate and normalize operations
+  const validatedOperations = [];
+  
+  for (const op of operations) {
+    try {
+      const validatedOp = validateOperation(op);
+      if (validatedOp) {
+        validatedOperations.push(validatedOp);
+      }
+    } catch (error) {
+      console.error('Invalid operation skipped:', op, error.message);
+    }
+  }
+
   // Group operations by file and type
   const fileOperations = {};
   const createOperations = [];
   const deleteFileOperations = [];
   
-  for (const op of operations) {
-    // Validate operation
-    if (!op.file || !op.action) {
-      console.error('Invalid operation:', op);
-      continue;
-    }
-
+  for (const op of validatedOperations) {
     // Handle different action types
     if (op.action === 'create') {
-      if (!op.content) {
-        console.error('Create operation missing content:', op);
-        continue;
-      }
       createOperations.push(op);
       continue;
     }
@@ -35,15 +40,9 @@ async function parseAndExecuteJSON(operations) {
     }
 
     if (op.action === 'insert' || op.action === 'delete') {
-      if (op.line === undefined || op.code === undefined) {
-        console.error('Invalid insert/delete operation:', op);
-        continue;
-      }
-
       if (!fileOperations[op.file]) {
         fileOperations[op.file] = [];
       }
-      
       fileOperations[op.file].push(op);
     }
   }
@@ -54,8 +53,17 @@ async function parseAndExecuteJSON(operations) {
   try {
     // 1. Delete files first
     for (const op of deleteFileOperations) {
-      const result = await deleteFile(op.file);
-      results.push(result);
+      try {
+        const result = await deleteFile(op.file);
+        results.push(result);
+      } catch (error) {
+        results.push({
+          file: op.file,
+          action: 'delete_file',
+          success: false,
+          error: error.message
+        });
+      }
     }
 
     // 2. Process file modifications (insert/delete)
@@ -75,8 +83,17 @@ async function parseAndExecuteJSON(operations) {
 
     // 3. Create new files last
     for (const op of createOperations) {
-      const result = await createFile(op.file, op.content);
-      results.push(result);
+      try {
+        const result = await createFile(op.file, op.content);
+        results.push(result);
+      } catch (error) {
+        results.push({
+          file: op.file,
+          action: 'create',
+          success: false,
+          error: error.message
+        });
+      }
     }
 
   } catch (error) {
@@ -88,6 +105,66 @@ async function parseAndExecuteJSON(operations) {
   }
 
   return results;
+}
+
+// Validate and normalize operation
+function validateOperation(op) {
+  if (!op || typeof op !== 'object') {
+    throw new Error('Operation must be an object');
+  }
+
+  if (!op.action || typeof op.action !== 'string') {
+    throw new Error('Operation must have an "action" string');
+  }
+
+  if (!op.file || typeof op.file !== 'string') {
+    throw new Error('Operation must have a "file" string');
+  }
+
+  const action = op.action.toLowerCase();
+  
+  switch (action) {
+    case 'create':
+      if (op.content === undefined) {
+        throw new Error('Create operation must have "content"');
+      }
+      return {
+        action: 'create',
+        file: op.file,
+        content: String(op.content)
+      };
+
+    case 'delete_file':
+      return {
+        action: 'delete_file',
+        file: op.file
+      };
+
+    case 'insert':
+      if (op.line === undefined || op.code === undefined) {
+        throw new Error('Insert operation must have "line" and "code"');
+      }
+      return {
+        action: 'insert',
+        file: op.file,
+        line: parseInt(op.line),
+        code: String(op.code)
+      };
+
+    case 'delete':
+      if (op.line === undefined || op.code === undefined) {
+        throw new Error('Delete operation must have "line" and "code"');
+      }
+      return {
+        action: 'delete',
+        file: op.file,
+        line: parseInt(op.line),
+        code: String(op.code)
+      };
+
+    default:
+      throw new Error(`Unknown action: ${action}`);
+  }
 }
 
 // Process operations for a single file
@@ -257,3 +334,4 @@ function insertAtLine(lines, lineNumber, codeToInsert) {
 module.exports = {
   parseAndExecuteJSON
 };
+[file content end]
