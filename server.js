@@ -1,5 +1,4 @@
-[file name]: server.js
-[file content begin]
+
 require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -344,4 +343,3 @@ function extractJSONOperations(text) {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
-[file content end]
