@@ -345,9 +345,9 @@ async function runAnalysis(deploymentId) {
     }
     analyzedDeploymentIds.add(deploymentId);
 
-    // FIX: Wait for 60 seconds to allow runtime logs to accumulate
-    addMessage('system', 'Deployment active. Waiting 60 seconds for runtime logs before analysis...');
-    await sleep(60000); // 60-second delay
+    // FIX: Wait for 120 seconds (2 minutes) to allow runtime logs to accumulate
+    addMessage('system', 'Deployment active. Waiting 120 seconds for runtime logs before analysis...');
+    await sleep(120000); // <-- CHANGED: 60000 -> 120000
 
     // Re-check status before proceeding (in case it failed while waiting)
     const statusResponse = await fetch('/api/railway/status');
