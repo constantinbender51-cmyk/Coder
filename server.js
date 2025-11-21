@@ -1,10 +1,11 @@
-
+[file name]: server.js
+[file content begin]
 require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const path = require('path');
-const extractJson = require('extract-json-from-string');
+const jsonrepair = require('jsonrepair');
 
 const deepseek = require('./deepseek');
 const github = require('./github');
@@ -137,7 +138,7 @@ app.post('/api/chat', async (req, res) => {
       ];
     }
 
-    // Check if response contains JSON operations using extract-json-from-string
+    // Check if response contains JSON operations using jsonrepair
     const jsonOperations = extractJSONOperations(response);
     console.log('Extracted JSON operations:', jsonOperations.length);
     
@@ -332,23 +333,29 @@ app.post('/api/cache/clear', (req, res) => {
   res.json({ message: 'File cache cleared' });
 });
 
-// Extract JSON operations from response using extract-json-from-string library
+// Extract JSON operations from response using jsonrepair
 function extractJSONOperations(text) {
   if (!text) return [];
   
   try {
     console.log('Extracting JSON from response...');
     
-    // Use extract-json-from-string library to find all JSON in the text
-    const jsonBlocks = extractJson(text);
-    console.log(`Found ${jsonBlocks.length} JSON blocks`);
-    
     const operations = [];
     
-    for (const jsonBlock of jsonBlocks) {
+    // Find JSON code blocks using regex
+    const jsonBlockRegex = /```json\s*([\s\S]*?)```/g;
+    let match;
+    
+    while ((match = jsonBlockRegex.exec(text)) !== null) {
       try {
-        // The library returns already parsed JSON objects
-        const parsed = jsonBlock;
+        const jsonText = match[1].trim();
+        console.log('Found JSON block, attempting to repair and parse...');
+        
+        // Use jsonrepair to fix any JSON issues
+        const repairedJson = jsonrepair(jsonText);
+        
+        // Parse the repaired JSON
+        const parsed = JSON.parse(repairedJson);
         
         // Handle array of operations
         if (Array.isArray(parsed)) {
@@ -366,8 +373,41 @@ function extractJSONOperations(text) {
           operations.push(parsed);
         }
       } catch (parseError) {
-        console.log('Failed to process JSON block:', parseError.message);
+        console.log('Failed to parse JSON block with jsonrepair:', parseError.message);
         continue;
+      }
+    }
+    
+    // If no JSON blocks found in markdown, try to find JSON directly in text
+    if (operations.length === 0) {
+      try {
+        // Look for JSON array pattern in the text
+        const jsonArrayRegex = /\[\s*\{[\s\S]*?\}\s*\]/g;
+        const arrayMatches = text.match(jsonArrayRegex);
+        
+        if (arrayMatches) {
+          for (const match of arrayMatches) {
+            try {
+              const repairedJson = jsonrepair(match);
+              const parsed = JSON.parse(repairedJson);
+              
+              if (Array.isArray(parsed)) {
+                const validOperations = parsed.filter(op => 
+                  op && typeof op === 'object' && op.action && op.file
+                );
+                if (validOperations.length > 0) {
+                  console.log(`Found ${validOperations.length} valid operations in direct JSON array`);
+                  operations.push(...validOperations);
+                  break;
+                }
+              }
+            } catch (error) {
+              continue;
+            }
+          }
+        }
+      } catch (error) {
+        console.log('No direct JSON found in text');
       }
     }
     
@@ -383,3 +423,4 @@ function extractJSONOperations(text) {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+[file content end]
