@@ -428,6 +428,78 @@ function extractJSONOperations(text) {
   return [];
 }
 
+// Analyze successful deployment logs
+app.post('/api/railway/analyze', async (req, res) => {
+  try {
+    const status = await railway.getDeploymentStatus();
+    
+    // We only analyze active/successful deployments here
+    if (status.status !== 'ACTIVE' && status.status !== 'SUCCESS') {
+      return res.json({ message: 'Deployment not active, skipping analysis' });
+    }
+
+    const fileContext = await getFileContext();
+    
+    // Create a QA Prompt
+    const logInfo = `BUILD LOGS:\n${status.buildLogs}\n\nRUNTIME LOGS:\n${status.deploymentLogs}`;
+    
+    const qaPrompt = `
+    The deployment is technically "Active", but I need you to analyze the runtime logs to see if the application is actually functioning correctly as intended.
+
+    CURRENT FILES:
+    ${fileContext}
+
+    LOGS:
+    ${logInfo}
+
+    INSTRUCTIONS:
+    1. Summarize what the logs show the app is doing.
+    2. If the logs show empty results, loops, errors that didn't crash the app, or logic failures, suggest a fix using the JSON operation format.
+    3. If the logs look perfect and the app is serving the intended purpose, output a text confirmation approving the project.
+    
+    If you provide JSON operations to fix logic errors, use the standard format:
+    \`\`\`json
+    [{"action": "insert", ...}]
+    \`\`\`
+    `;
+    
+    // We don't add this to main history to keep context clean, or we can if you prefer.
+    // Let's use a temporary context to get a focused analysis.
+    const analysisMessages = [
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: qaPrompt }
+    ];
+
+    const response = await deepseek.chat(analysisMessages);
+
+    // Parse operations if DeepSeek suggests fixes
+    const jsonOperations = extractJSONOperations(response);
+    
+    if (jsonOperations.length > 0) {
+      try {
+        // We DO NOT execute automatically here, we just return suggestions
+        // unless you want auto-fixing. Let's return them for the user to approve.
+        // If you want auto-execution, uncomment the execute line below.
+        const results = await parseAndExecuteJSON(jsonOperations);
+        fileCache.clear();
+        
+        return res.json({ 
+          response, 
+          operations: results,
+          analysisPerformed: true 
+        });
+      } catch (error) {
+        return res.json({ response, error: error.message });
+      }
+    }
+
+    res.json({ response, analysisPerformed: true });
+  } catch (error) {
+    console.error('Analysis error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Clean JSON content before parsing
 function cleanJSONContent(content) {
   if (!content) return '';
@@ -455,3 +527,7 @@ function cleanJSONContent(content) {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
+// FIX: Increase timeout to 5 minutes (300,000 ms) to handle long DeepSeek generations
+server.setTimeout(300000);
+
