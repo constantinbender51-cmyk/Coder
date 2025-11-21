@@ -20,6 +20,9 @@ const sidebar = document.getElementById('sidebar');
 let lastDeploymentStatus = null;
 let currentSpeech = null;
 let isSpeechSupported = false;
+// ADD THIS LINE:
+let handledFailureIds = new Set();
+
 
 // Check speech synthesis support
 function checkSpeechSupport() {
@@ -357,14 +360,18 @@ async function checkDeploymentStatus() {
         
         deploymentStatus.innerHTML = statusHtml;
         
-        // Check if deployment just failed
-        if ((data.status === 'FAILED' || data.status === 'CRASHED') && 
-            lastDeploymentStatus && lastDeploymentStatus.id !== data.id) {
+        // FIX: Improved trigger logic
+        const isFailed = data.status === 'FAILED' || data.status === 'CRASHED';
+        
+        // If failed AND we haven't asked about this specific deployment ID yet
+        if (isFailed && !handledFailureIds.has(data.id)) {
             showAutofixModal();
+            handledFailureIds.add(data.id); // Mark this ID as handled
         }
         
         lastDeploymentStatus = data;
     } catch (error) {
+        console.error(error); // Good to log the actual error
         deploymentStatus.innerHTML = `<div style="color: #c62828;">Error checking status</div>`;
     }
 }
