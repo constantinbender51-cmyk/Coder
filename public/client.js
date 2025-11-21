@@ -105,10 +105,29 @@ async function sendMessage() {
             }
             
             if (data.operations) {
-                const opsMessage = `✓ Executed ${data.operations.length} operation(s) on GitHub`;
+                const successful = data.operations.filter(op => op.success).length;
+                const failed = data.operations.filter(op => !op.success).length;
+                
+                let opsMessage = '';
+                if (successful > 0) opsMessage += `✓ Success: ${successful} `;
+                if (failed > 0) opsMessage += `✗ Failed: ${failed}`;
+                
+                if (!opsMessage) opsMessage = 'No operations performed';
+                
                 addMessage('system', opsMessage);
+                
+                // If there were failures, print them to the chat so you can see WHY
+                if (failed > 0) {
+                    const errors = data.operations
+                        .filter(op => !op.success)
+                        .map(op => `- ${op.file}: ${op.error || 'Unknown error'}`)
+                        .join('\n');
+                    addMessage('system', `Errors:\n${errors}`);
+                }
+
                 loadFiles(); // Refresh file list
             }
+
         }
     } catch (error) {
         addMessage('assistant', `Error: ${error.message}`);
