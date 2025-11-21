@@ -4,7 +4,7 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const path = require('path');
-const extractJson = require('extract-json');
+const extractJson = require('extract-json-from-string');
 
 const deepseek = require('./deepseek');
 const github = require('./github');
@@ -137,7 +137,7 @@ app.post('/api/chat', async (req, res) => {
       ];
     }
 
-    // Check if response contains JSON operations using extract-json
+    // Check if response contains JSON operations using extract-json-from-string
     const jsonOperations = extractJSONOperations(response);
     console.log('Extracted JSON operations:', jsonOperations.length);
     
@@ -332,14 +332,14 @@ app.post('/api/cache/clear', (req, res) => {
   res.json({ message: 'File cache cleared' });
 });
 
-// Extract JSON operations from response using extract-json library
+// Extract JSON operations from response using extract-json-from-string library
 function extractJSONOperations(text) {
   if (!text) return [];
   
   try {
     console.log('Extracting JSON from response...');
     
-    // Use extract-json library to find all JSON in the text
+    // Use extract-json-from-string library to find all JSON in the text
     const jsonBlocks = extractJson(text);
     console.log(`Found ${jsonBlocks.length} JSON blocks`);
     
@@ -347,14 +347,8 @@ function extractJSONOperations(text) {
     
     for (const jsonBlock of jsonBlocks) {
       try {
-        let parsed;
-        
-        // Handle both string and object outputs from extract-json
-        if (typeof jsonBlock === 'string') {
-          parsed = JSON.parse(jsonBlock);
-        } else {
-          parsed = jsonBlock;
-        }
+        // The library returns already parsed JSON objects
+        const parsed = jsonBlock;
         
         // Handle array of operations
         if (Array.isArray(parsed)) {
@@ -372,7 +366,7 @@ function extractJSONOperations(text) {
           operations.push(parsed);
         }
       } catch (parseError) {
-        console.log('Failed to parse JSON block:', parseError.message);
+        console.log('Failed to process JSON block:', parseError.message);
         continue;
       }
     }
