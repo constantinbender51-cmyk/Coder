@@ -155,9 +155,8 @@ async function getDeploymentLogs(deploymentId) {
 }
 
 module.exports = {
-  getDeploymentStatus
-  getBuildLogs, 
-  getDeploymentLogs, 
-  // Add this export
+  getDeploymentStatus,
+  getBuildLogs,
+  getDeploymentLogs,
   PROJECT_ID
 };
