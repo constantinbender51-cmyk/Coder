@@ -158,12 +158,31 @@ function addMessage(role, content) {
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content';
     
-    // Format code blocks
-    content = content.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, lang, code) => {
-        return `<pre><code>${escapeHtml(code)}</code></pre>`;
+    // FIX: Split content by code blocks to handle formatting correctly
+    // This regex captures the content inside backticks, including the backticks
+    const parts = content.split(/(```[\s\S]*?```)/g);
+    
+    const formattedParts = parts.map(part => {
+        if (part.startsWith('```')) {
+            // It is a code block
+            // Extract language and code
+            const match = part.match(/```(\w+)?\n?([\s\S]*?)```/);
+            const lang = match[1] || '';
+            const code = match[2] || '';
+            
+            // Escape HTML in code to prevent rendering tags
+            const safeCode = escapeHtml(code);
+            
+            return `<pre><code class="${lang}">${safeCode}</code></pre>`;
+        } else {
+            // It is regular text
+            // Escape HTML first (prevents <div...> from rendering)
+            // THEN replace newlines with <br>
+            return escapeHtml(part).replace(/\n/g, '<br>');
+        }
     });
     
-    contentDiv.innerHTML = content.replace(/\n/g, '<br>');
+    contentDiv.innerHTML = formattedParts.join('');
     
     // Add TTS button for assistant messages
     if (role === 'assistant' && isSpeechSupported) {
@@ -422,9 +441,13 @@ async function requestAutofix() {
 
 // Utility function
 function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    if (!text) return '';
+    return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
 }
 
 // Handle page visibility change to stop speech when tab is hidden
