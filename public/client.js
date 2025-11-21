@@ -337,6 +337,53 @@ async function loadFileContent(filePath) {
     }
 }
 
+// New function to run post-deployment analysis
+async function runAnalysis(deploymentId) {
+    // Check if we've already started or finished analysis for this ID
+    if (analyzedDeploymentIds.has(deploymentId)) {
+        return;
+    }
+    analyzedDeploymentIds.add(deploymentId);
+
+    // FIX: Wait for 60 seconds to allow runtime logs to accumulate
+    addMessage('system', 'Deployment active. Waiting 60 seconds for runtime logs before analysis...');
+    await sleep(60000); // 60-second delay
+
+    // Re-check status before proceeding (in case it failed while waiting)
+    const statusResponse = await fetch('/api/railway/status');
+    const currentStatus = await statusResponse.json();
+
+    if (currentStatus.id !== deploymentId || currentStatus.status !== 'ACTIVE') {
+         addMessage('system', 'Deployment status changed or failed during wait. Skipping analysis.');
+         return;
+    }
+    
+    addMessage('system', 'Starting DeepSeek analysis of runtime logs...');
+    
+    try {
+        const response = await fetch('/api/railway/analyze', { method: 'POST' });
+        const data = await response.json();
+        
+        if (data.response) {
+            addMessage('assistant', `📋 **Post-Deployment Analysis:**\n\n${data.response}`);
+            
+            if (data.operations) {
+                 const successful = data.operations.filter(op => op.success).length;
+                 if (successful > 0) {
+                    addMessage('system', `✓ Analysis applied ${successful} fix(es) to improve functionality.`);
+                    loadFiles();
+                 }
+            }
+            
+            if (isSpeechSupported) {
+                speakText(data.response);
+            }
+        }
+    } catch (error) {
+        console.error('Analysis failed:', error);
+    }
+}
+
 // Check deployment status
 async function checkDeploymentStatus() {
     try {
@@ -392,15 +439,15 @@ async function checkDeploymentStatus() {
 
         // LOGIC 2: Handle Success Analysis (NEW)
         const isActive = data.status === 'ACTIVE' || data.status === 'SUCCESS';
+        // Only trigger the analysis if it's active AND we haven't already
+        // added it to the analyzed set to start the delay.
         if (isActive && !analyzedDeploymentIds.has(data.id)) {
-            // Mark as analyzed immediately so we don't loop
-            analyzedDeploymentIds.add(data.id);
-            runAnalysis();
+            // Use a non-blocking call for the analysis and delay
+            runAnalysis(data.id); 
         }
         
         lastDeploymentStatus = data;
     } catch (error) {
-        console.error(error); // Good to log the actual error
         deploymentStatus.innerHTML = `<div style="color: #c62828;">Error checking status</div>`;
     }
 }
@@ -487,6 +534,11 @@ function escapeHtml(text) {
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
+}
+
+// Utility function to introduce a pause
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // Handle page visibility change to stop speech when tab is hidden
