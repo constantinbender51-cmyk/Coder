@@ -104,11 +104,46 @@ async function sendMessage() {
         
         const data = await response.json();
         
+        // --- FIX START: Display logic ---
         if (data.error) {
             addMessage('assistant', `Error: ${data.error}`);
         } else {
-            // ... (keep existing logic for displaying assistant response and operations) ...
+            // CRITICAL FIX: Ensure the assistant's text is displayed
+            if (data.response) {
+                addMessage('assistant', data.response);
+            }
+            
+            // Check for and display operations results (already implemented but good to confirm)
+            if (data.operations) {
+                const successful = data.operations.filter(op => op.success).length;
+                const failedOps = data.operations.filter(op => !op.success);
+                const failed = failedOps.length;
+                
+                let opsMessage = '';
+                if (successful > 0) opsMessage += `✓ Executed ${successful} change(s) `;
+                if (failed > 0) opsMessage += `✗ Failed: ${failed}`;
+                
+                if (opsMessage) {
+                    addMessage('system', opsMessage);
+                }
+                
+                // Display the error message for failed operations
+                if (failed > 0) {
+                    const errorDetails = failedOps
+                        .map(op => `- **${op.action} ${op.file} (Line ${op.line || 'N/A'}):** ${op.error || 'Unknown error during execution.'}`)
+                        .join('\n');
+                    addMessage('system', `**Execution Errors:**\n${errorDetails}`);
+                }
+                
+                loadFiles(); 
+            }
+            
+            // Auto-play TTS if supported
+            if (isSpeechSupported && data.response) {
+                speakText(getTextContent(data.response));
+            }
         }
+        // --- FIX END ---
         
     } catch (error) {
         addMessage('assistant', `Error sending message: ${error.message}`);
