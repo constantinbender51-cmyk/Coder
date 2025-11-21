@@ -22,6 +22,8 @@ let currentSpeech = null;
 let isSpeechSupported = false;
 // ADD THIS LINE:
 let handledFailureIds = new Set();
+let analyzedDeploymentIds = new Set(); // Add this tracker
+
 
 
 // Check speech synthesis support
@@ -387,6 +389,14 @@ async function checkDeploymentStatus() {
             showAutofixModal();
             handledFailureIds.add(data.id); // Mark this ID as handled
         }
+
+        // LOGIC 2: Handle Success Analysis (NEW)
+        const isActive = data.status === 'ACTIVE' || data.status === 'SUCCESS';
+        if (isActive && !analyzedDeploymentIds.has(data.id)) {
+            // Mark as analyzed immediately so we don't loop
+            analyzedDeploymentIds.add(data.id);
+            runAnalysis();
+        }
         
         lastDeploymentStatus = data;
     } catch (error) {
@@ -394,6 +404,35 @@ async function checkDeploymentStatus() {
         deploymentStatus.innerHTML = `<div style="color: #c62828;">Error checking status</div>`;
     }
 }
+
+// New function to run post-deployment analysis
+async function runAnalysis() {
+    addMessage('system', 'Deployment active. DeepSeek is analyzing runtime logs for functionality...');
+    
+    try {
+        const response = await fetch('/api/railway/analyze', { method: 'POST' });
+        const data = await response.json();
+        
+        if (data.response) {
+            addMessage('assistant', `📋 **Post-Deployment Analysis:**\n\n${data.response}`);
+            
+            if (data.operations) {
+                 const successful = data.operations.filter(op => op.success).length;
+                 if (successful > 0) {
+                    addMessage('system', `✓ Analysis applied ${successful} fix(es) to improve functionality.`);
+                    loadFiles();
+                 }
+            }
+            
+            if (isSpeechSupported) {
+                speakText(data.response);
+            }
+        }
+    } catch (error) {
+        console.error('Analysis failed:', error);
+    }
+}
+
 
 // Show autofix modal
 function showAutofixModal() {
