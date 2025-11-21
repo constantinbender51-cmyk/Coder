@@ -44,6 +44,16 @@ body {
     transition: transform 0.3s ease;
 }
 
+
+/* Ensure Main Content takes the remaining space */
+.main-content {
+    flex-grow: 1; /* Crucial: Makes it take up all remaining width */
+    display: flex;
+    flex-direction: column;
+    padding: 20px;
+    overflow-y: hidden; /* Main content controls the scroll of its children */
+}
+
 .sidebar h3 {
     margin-bottom: 15px;
     font-size: 16px;
