@@ -524,10 +524,9 @@ function cleanJSONContent(content) {
   return cleaned.trim();
 }
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
 
 // FIX: Increase timeout to 5 minutes (300,000 ms) to handle long DeepSeek generations
 server.setTimeout(300000);
-
