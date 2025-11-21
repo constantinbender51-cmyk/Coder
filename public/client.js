@@ -90,6 +90,9 @@ async function sendMessage() {
     chatInput.value = '';
     sendBtn.disabled = true;
 
+    const processingMessageId = Date.now();
+    addMessage('system', 'Typing...', processingMessageId);
+
     try {
         const response = await fetch('/api/chat', {
             method: 'POST',
@@ -140,6 +143,9 @@ async function sendMessage() {
         sendBtn.disabled = false;
         chatInput.focus();
     }
+
+    const processingMsg = document.querySelector(`.message[data-id="${processingMessageId}"]`);
+    if (processingMsg) processingMsg.remove();
 }
 
 // Add message to chat
