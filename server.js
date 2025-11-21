@@ -314,7 +314,34 @@ app.post('/api/railway/autofix', async (req, res) => {
       ];
     }
 
-    // Clear file cache since autofix might modify files
+    // FIX START: Parse and execute the operations -------------------
+    const jsonOperations = extractJSONOperations(response);
+    console.log('Autofix JSON operations:', jsonOperations.length);
+    
+    if (jsonOperations.length > 0) {
+      try {
+        const results = await parseAndExecuteJSON(jsonOperations);
+        
+        // Clear file cache since autofix modified files
+        fileCache.clear();
+        
+        return res.json({ 
+          response, 
+          operations: results, // Send operations back to client
+          autoFixRequested: true 
+        });
+      } catch (error) {
+        console.error('Error executing autofix operations:', error);
+        return res.json({ 
+          response,
+          error: `Failed to execute operations: ${error.message}`,
+          autoFixRequested: true
+        });
+      }
+    }
+    // FIX END ------------------------------------------------------
+
+    // Clear file cache just in case
     fileCache.clear();
 
     res.json({ response, autoFixRequested: true });
