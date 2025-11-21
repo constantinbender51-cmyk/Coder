@@ -395,6 +395,19 @@ async function requestAutofix() {
         } else {
             addMessage('assistant', data.response);
             
+            // FIX: Handle operations reporting for Autofix
+            if (data.operations) {
+                const successful = data.operations.filter(op => op.success).length;
+                const failed = data.operations.filter(op => !op.success).length;
+                
+                let opsMessage = '';
+                if (successful > 0) opsMessage += `✓ Auto-fix: Executed ${successful} change(s) `;
+                if (failed > 0) opsMessage += `✗ Failed: ${failed}`;
+                
+                addMessage('system', opsMessage);
+                loadFiles(); // Refresh file list
+            }
+
             // Auto-play TTS for autofix response
             if (isSpeechSupported) {
                 speakText(data.response);
