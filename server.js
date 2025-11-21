@@ -62,6 +62,9 @@ RULES:
 8. Line numbers are 1-based (first line is 1, not 0)
 9. For "create" action, use "content" field instead of "code"
 10. For "delete_file" action, only "file" field is needed
+11. YOU MUST wrap the JSON in \`\`\`json code blocks.
+12. Do not output conversational text inside the JSON block.
+  
 
 EXAMPLES:
 
@@ -336,109 +339,90 @@ app.post('/api/cache/clear', (req, res) => {
 
 // Extract JSON operations from response with robust parsing
 function extractJSONOperations(text) {
-  const jsonBlocks = [];
-  
-  if (!text) return jsonBlocks;
+  if (!text) return [];
   
   console.log('Parsing response for JSON operations...');
-  
-  // Try multiple patterns to extract JSON
-  const patterns = [
-    // Pattern 1: Standard ```json ``` blocks (most common)
-    /```json\s*([\s\S]*?)```/g,
-    // Pattern 2: Generic ``` ``` blocks that might contain JSON
-    /```(?:json)?\s*([\s\S]*?)```/g,
-    // Pattern 3: Direct JSON array/object at start of text
-    /^\s*(\[\s*\{[\s\S]*?\}\])\s*$/m,
-    // Pattern 4: JSON array anywhere in text
-    /(\[\s*\{[\s\S]*?\}\s*\])/g
-  ];
+  let potentialJson = null;
 
-  for (const pattern of patterns) {
-    try {
-      const matches = text.match(pattern);
-      if (!matches) continue;
-      
-      for (const match of matches) {
-        try {
-          let jsonContent = match;
-          
-          // Extract content from code blocks
-          if (match.startsWith('```')) {
-            const contentMatch = match.match(/```(?:json)?\s*([\s\S]*?)```/);
-            if (contentMatch && contentMatch[1]) {
-              jsonContent = contentMatch[1];
-            }
-          }
-          
-          const cleanedContent = cleanJSONContent(jsonContent);
-          console.log('Attempting to parse cleaned content...');
-          
-          const parsed = JSON.parse(cleanedContent);
-          
-          if (Array.isArray(parsed)) {
-            // Validate that it's an array of operations
-            const validOperations = parsed.filter(op => 
-              op && typeof op === 'object' && op.action && op.file
-            );
-            if (validOperations.length > 0) {
-              console.log(`Found ${validOperations.length} valid operations`);
-              jsonBlocks.push(...validOperations);
-              break; // Stop after first successful parse
-            }
-          } else if (parsed.action && parsed.file) {
-            // Single operation object
-            console.log('Found single operation');
-            jsonBlocks.push(parsed);
-            break;
-          }
-        } catch (parseError) {
-          console.log('Parse error for match, trying next pattern:', parseError.message);
-          continue;
-        }
-      }
-      
-      // If we found valid operations, stop trying other patterns
-      if (jsonBlocks.length > 0) {
-        break;
-      }
-    } catch (error) {
-      console.log('Pattern matching error:', error.message);
-      continue;
+  // Strategy 1: Look for ```json block (Best Case)
+  const jsonBlockRegex = /```json\s*([\s\S]*?)```/;
+  const jsonBlockMatch = text.match(jsonBlockRegex);
+  
+  if (jsonBlockMatch && jsonBlockMatch[1]) {
+    console.log('Found ```json block');
+    potentialJson = jsonBlockMatch[1];
+  } 
+  // Strategy 2: Look for generic code block
+  else {
+    const codeBlockRegex = /```\s*([\s\S]*?)```/;
+    const codeBlockMatch = text.match(codeBlockRegex);
+    if (codeBlockMatch && codeBlockMatch[1]) {
+       // Check if it looks like an array
+       if (codeBlockMatch[1].trim().startsWith('[')) {
+         console.log('Found generic code block containing array');
+         potentialJson = codeBlockMatch[1];
+       }
     }
   }
-  
-  console.log(`Total operations extracted: ${jsonBlocks.length}`);
-  return jsonBlocks;
+
+  // Strategy 3: Fallback - Find the first '[' and last ']'
+  if (!potentialJson) {
+    const start = text.indexOf('[');
+    const end = text.lastIndexOf(']');
+    
+    if (start !== -1 && end !== -1 && end > start) {
+      console.log('Found raw JSON array in text');
+      potentialJson = text.substring(start, end + 1);
+    }
+  }
+
+  if (!potentialJson) {
+    console.log('No JSON structure found');
+    return [];
+  }
+
+  try {
+    const cleaned = cleanJSONContent(potentialJson);
+    const parsed = JSON.parse(cleaned);
+
+    if (Array.isArray(parsed)) {
+      const validOperations = parsed.filter(op => 
+        op && typeof op === 'object' && op.action && op.file
+      );
+      console.log(`Successfully parsed ${validOperations.length} valid operations`);
+      return validOperations;
+    }
+  } catch (e) {
+    console.error('JSON Parse Error:', e.message);
+    // Debug: log a snippet of what failed
+    console.log('Failed content snippet:', potentialJson.substring(0, 100) + '...');
+  }
+
+  return [];
 }
 
 // Clean JSON content before parsing
 function cleanJSONContent(content) {
   if (!content) return '';
   
-  return content
-    // Remove any markdown code block indicators that might remain
-    .replace(/```json/g, '')
-    .replace(/```/g, '')
-    // Fix trailing commas in objects and arrays
+  // 1. Remove markdown code block wrappers
+  let cleaned = content
+    .replace(/^```json\s*/, '')
+    .replace(/^```\s*/, '')
+    .replace(/```$/, '');
+
+  // 2. Fix common LLM syntax errors, but BE CAREFUL not to touch string content
+  // We only want to fix trailing commas in objects/arrays
+  cleaned = cleaned
     .replace(/,\s*}/g, '}')
-    .replace(/,\s*]/g, ']')
-    // Ensure proper quotes around keys
-    .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*:)/g, '$1"$2"$3')
-    // Fix unescaped quotes in strings
-    .replace(/: \"(.*?[^\\])\"/g, (match, str) => {
-      return ': \"' + str.replace(/\"/g, '\\"') + '\"';
-    })
-    // Convert single quotes to double quotes for JSON compliance
-    .replace(/'/g, '"')
-    // Fix escaped characters
-    .replace(/\\\\/g, '\\')
-    .replace(/\\n/g, '\n')
-    .replace(/\\t/g, '\t')
-    .replace(/\\r/g, '\r')
-    // Remove any trailing commas or whitespace
-    .replace(/,\s*$/, '')
-    .trim();
+    .replace(/,\s*]/g, ']');
+    
+  // 3. OPTIONAL: Some LLMs use single quotes for JSON keys/values which is invalid.
+  // However, blindly replacing ' with " breaks code that contains single quotes.
+  // It is better to prompt the LLM to output valid JSON than to try to regex fix quotes 
+  // inside complex code strings. 
+  
+  return cleaned.trim();
 }
 
 app.listen(PORT, () => {
