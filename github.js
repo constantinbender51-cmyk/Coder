@@ -52,8 +52,16 @@ async function getFileContent(filePath) {
       path: filePath
     };
   } catch (error) {
-    console.error('GitHub get file error:', error.response?.data || error.message);
-    throw new Error(`Failed to get file: ${filePath}`);
+    // FIX: Log the error but allow the 404 status to propagate in the message
+    const status = error.response ? error.response.status : 'Unknown';
+    console.error(`GitHub get file error (${status}):`, error.response?.data || error.message);
+    
+    // Crucial: Include "404" in the error message so json-parser detects it
+    if (status === 404) {
+      throw new Error(`File not found: ${filePath} (404)`);
+    }
+    
+    throw new Error(`Failed to get file: ${filePath} (Status: ${status})`);
   }
 }
 
