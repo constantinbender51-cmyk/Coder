@@ -159,10 +159,12 @@ function addMessage(role, content) {
     
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content';
+
+    const safeContent = content || '';
     
     // FIX: Split content by code blocks to handle formatting correctly
     // This regex captures the content inside backticks, including the backticks
-    const parts = content.split(/(```[\s\S]*?```)/g);
+    const parts = safeContent.split(/(```[\s\S]*?```)/g);
     
     const formattedParts = parts.map(part => {
         if (part.startsWith('```')) {
